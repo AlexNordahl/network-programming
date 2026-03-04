@@ -27,7 +27,7 @@ int main(int argc, char* argv[])
 
     char buf[1024];
 
-    for(;;)
+    for (;;)
     {
         int bytes = read(read_fd, buf, sizeof(buf));
 
@@ -38,14 +38,6 @@ int main(int argc, char* argv[])
         {
             perror("read");
             return 1;
-        }
-
-        for (int i = 0; i < bytes - 1; ++i)
-        {
-            if (buf[i] == '\n' || (buf[i] == '\r' && buf[i + 1] == '\n'))
-            {
-                
-            }   
         }
 
         if (write(write_fd, buf, bytes) <= 0)
