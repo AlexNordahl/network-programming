@@ -19,6 +19,8 @@ struct count count(const char* input);
 
 int main()
 {
+    const int dgram_size = 65507;
+    const int reply_size = 64;
     const int port_number = 2020;
 
     struct sockaddr_in addr;
@@ -43,12 +45,12 @@ int main()
     struct sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
 
-    char buffer[65508];
-    char reply[64];
+    char buffer[dgram_size + 1];
+    char reply[reply_size];
 
     for (;;)
     {
-        int bytes = recvfrom(serv_fd, buffer, sizeof(buffer), 0, (struct sockaddr*) &client_addr, &client_len);
+        int bytes = recvfrom(serv_fd, buffer, dgram_size, 0, (struct sockaddr*) &client_addr, &client_len);
         if (bytes == -1)
         {
             perror("recvfrom");
@@ -60,11 +62,11 @@ int main()
         if (verify(buffer))
         {
             struct count c = count(buffer);
-            snprintf(reply, sizeof(reply), "%d/%d\n", c.plnd, c.words);
+            snprintf(reply, sizeof(reply), "%d/%d", c.plnd, c.words);
         }
         else
         {
-            snprintf(reply, sizeof(reply), "ERROR\n");
+            snprintf(reply, sizeof(reply), "ERROR");
         }
 
         if (sendto(serv_fd, reply, strlen(reply), 0, (struct sockaddr*) &client_addr, client_len) == -1)
