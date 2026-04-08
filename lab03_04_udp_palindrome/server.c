@@ -13,9 +13,10 @@ struct count
     int words;
 };
 
-bool verify(const char* input);
-bool is_palindrome(const char* input, const size_t size);
-struct count count(const char* input);
+bool verify(const unsigned char* input, ssize_t size);
+bool is_palindrome(const unsigned char* input, ssize_t size);
+bool is_letter(const unsigned char c);
+struct count count(const unsigned char* input, ssize_t size);
 
 int main()
 {
@@ -45,23 +46,21 @@ int main()
     struct sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
 
-    char buffer[dgram_size + 1];
+    unsigned char buffer[dgram_size];
     char reply[reply_size];
 
     for (;;)
     {
-        int bytes = recvfrom(serv_fd, buffer, dgram_size, 0, (struct sockaddr*) &client_addr, &client_len);
+        ssize_t bytes = recvfrom(serv_fd, buffer, dgram_size, 0, (struct sockaddr*) &client_addr, &client_len);
         if (bytes == -1)
         {
             perror("recvfrom");
             return 1;
         }
 
-        buffer[bytes] = '\0';
-
-        if (verify(buffer))
+        if (verify(buffer, bytes))
         {
-            struct count c = count(buffer);
+            struct count c = count(buffer, bytes);
             snprintf(reply, sizeof(reply), "%d/%d", c.plnd, c.words);
         }
         else
@@ -77,9 +76,9 @@ int main()
     }
 }
 
-bool verify(const char* input)
+bool verify(const unsigned char* input, ssize_t size)
 {
-    if (*input == '\0')
+    if (size == 0)
         return true;
 
     enum State
@@ -90,14 +89,14 @@ bool verify(const char* input)
     };
 
     enum State state = SPACE;
-    while (*input != '\0')
+    for (int i = 0; i < size; ++i)
     {
         unsigned char curr = (unsigned char) *input;
         switch (state)
         {
             case LETTER:
             {
-                if (isalpha(curr))
+                if (is_letter(curr))
                     state = LETTER;
                 else if (curr == ' ')
                     state = SPACE;
@@ -109,7 +108,7 @@ bool verify(const char* input)
 
             case SPACE:
             {
-                if (isalpha(curr))
+                if (is_letter(curr))
                     state = LETTER;
                 else
                     state = ERROR;
@@ -125,9 +124,9 @@ bool verify(const char* input)
     return state == LETTER;
 }
 
-bool is_palindrome(const char* begin, const size_t size)
+bool is_palindrome(const unsigned char* begin, ssize_t size)
 {
-    const char* end = begin + size - 1;
+    const unsigned char* end = begin + size - 1;
     while (begin < end)
     {   
         if (tolower((unsigned char)*begin) != tolower((unsigned char)*end))
@@ -140,17 +139,22 @@ bool is_palindrome(const char* begin, const size_t size)
     return true;
 }
 
-struct count count(const char* input)
+bool is_letter(const unsigned char c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+struct count count(const unsigned char* input, ssize_t size)
 {
     struct count result;
     result.plnd = 0;
     result.words = 0;
 
-    const char* word = input;
+    const unsigned char* word = input;
     int word_size = 0;
-    for (size_t i = 0; *input != '\0'; ++i, ++input)
+    for (int i = 0; i < size; ++i, ++input)
     {
-        if (isalpha(*input))
+        if (is_letter((unsigned char) *input))
         {   
             if (word_size == 0) 
                 word = input;
