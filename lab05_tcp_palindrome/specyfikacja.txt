@@ -1,7 +1,0 @@
-Nie pozwalamy na używanie więcej niż jednej spacji jako separatora pomiędzy wyrazami w zapytaniu
-Spacje przed pierwszym i po ostatnim wyrazem są zabronione
-Utożsamiamy wielkie i małe litery
-Jednoliterowe wyrazy są palindromami
-Zapytanie zawierające pusty zbiór wyrazów uznajemy za poprawne
-Zapytania odseparowane są przez dwuznak \r\n
-Zapytanie nie powinno przekraczać 1024 bajtów
