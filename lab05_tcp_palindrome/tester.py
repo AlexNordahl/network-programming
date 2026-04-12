@@ -1,37 +1,57 @@
+from pathlib import Path
 import socket
+import subprocess
 
-HOST = '127.0.0.1'
+HOST = "127.0.0.1"
 PORT = 2020
-FILE_NAME = 'test.txt'
-OUTPUT_FILE = 'output.txt'
 
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+folder = Path("tests")
+output_dir = Path("output")
+output_dir.mkdir(exist_ok=True)
+
+files = sorted(
+    [f for f in folder.iterdir() if f.is_file()],
+    key=lambda f: int(f.stem.replace("test", ""))
+)
+
+for file in files:
+    print(f"Wysyłam (TCP): {file}")
+    
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(1.0)
+
     try:
-        s.connect((HOST, PORT))
+        sock.connect((HOST, PORT))
+        data = file.read_bytes()
+        sock.sendall(data)
 
-        with open(FILE_NAME, 'rb') as file:
-            raw_data = file.read()
-            s.sendall(raw_data)
-            
-            print(f"Wysłano surowe bajty: {raw_data}")
+        response_bytes = b""
+        sock.settimeout(0.5) 
         
-        s.settimeout(1.0)
-        full_response = b""
-        
-        try:
-            while True:
-                chunk = s.recv(4096)
+        while True:
+            try:
+                chunk = sock.recv(4096)
                 if not chunk:
                     break
-                full_response += chunk
-        except socket.timeout:
-            pass
-            
-        print(f"Otrzymano łącznie: {repr(full_response.decode('ascii'))}\n")
-        
-        with open(OUTPUT_FILE, 'wb') as out_file:
-            out_file.write(full_response)
-            print(f"Zapisano odpowiedź do pliku: {OUTPUT_FILE}")
-            
-    except Exception as e:
-        print(f"Błąd: {e}")
+                response_bytes += chunk
+            except socket.timeout:
+                break 
+
+        if not response_bytes:
+            od_output = "[NO DATA RECEIVED]"
+        else:
+            result = subprocess.run(
+                ["od", "-A", "d", "-t", "u1", "-t", "c"],
+                input=response_bytes,
+                capture_output=True,
+                check=True
+            )
+            od_output = result.stdout.decode("utf-8", errors="replace")
+
+    except (socket.timeout, ConnectionRefusedError) as e:
+        od_output = f"[{type(e).__name__}]"
+    finally:
+        sock.close()
+
+    with open(output_dir / file.name, "w", encoding="utf-8") as f_out:
+        f_out.write(od_output)

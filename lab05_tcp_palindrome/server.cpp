@@ -1,66 +1,62 @@
+#include <unistd.h>
 #include <netinet/in.h>
-#include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
-#include <sys/syscall.h>
-#include <unistd.h>
 
 #include <string>
+#include <cstddef>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
-#include <iostream>
+#include <array>
 
-int init_server(int port_number);
-std::pair<int, int> count(const unsigned char* input, ssize_t size);  // plnd, words
-char to_lower(const unsigned char c);
-bool is_letter(const unsigned char c);
+int init_server(int port_number, int connections);
+std::pair<int, int> count(std::string_view input);  // plnd, words
+bool is_palindrome(std::string_view input);
+constexpr char to_lower(const unsigned char c);
+constexpr bool is_letter(const unsigned char c);
 
 class StateMachine
 {
 public:
-    void consume(unsigned char c);
-    void reset();
+    void consume(unsigned char c) noexcept;
+    void reset() noexcept;
 
-    bool isError() { return is_error; }
-    bool isTerminator() { return m_state == TERMINATOR; }
-    int getConsumed() { return consumed; }
+    bool isError() const noexcept { return m_is_error; }
+    bool isTerminator() const noexcept { return m_state == State::TERMINATOR; }
 
 private:
-    enum State
+    enum class State
     {
+        START,
         LETTER,
         SPACE,
         CARET,
         TERMINATOR,
     };
 
-    State m_state{SPACE};
-    bool is_error{};
-    int consumed{};
-};
-
-struct ClientContext
-{
-    StateMachine sm;
-    std::string current_line;
+    State m_state{State::START};
+    int m_consumed{};
+    bool m_is_error{};
 };
 
 int main()
 {
     const int port_number = 2020;
-
-    int serv_fd = init_server(port_number);
+    const int connections = 100;
+    
+    int serv_fd = init_server(port_number, connections);
     if (serv_fd == -1)
-        return 1;
-
+    return 1;
+    
     int epoll_fd = epoll_create1(0);
     if (epoll_fd == -1)
     {
         perror("epoll_create1");
         return 1;
     }
-
-    struct epoll_event event;
+    
+    epoll_event event{};
     event.events = EPOLLIN;
     event.data.fd = serv_fd;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, serv_fd, &event) == -1)
@@ -69,15 +65,19 @@ int main()
         return 1;
     }
 
-    std::unordered_map<int, ClientContext> clients;
+    struct ClientContext
+    {
+        StateMachine sm;
+        std::string current_line;
+    };
 
-    const int MAX_EVENTS = 10;
-    struct epoll_event events[MAX_EVENTS];
-    unsigned char buffer[1024];
+    std::unordered_map<int, ClientContext> clients;
+    std::array<epoll_event, 10> events;
+    std::array<unsigned char, 1024> buffer;
 
     while (true)
     {
-        int num_events = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+        int num_events = epoll_wait(epoll_fd, events.data(), events.size(), -1);
         if (num_events == -1)
         {
             perror("epoll_wait");
@@ -87,10 +87,9 @@ int main()
         for (int i = 0; i < num_events; ++i)
         {
             int current_fd = events[i].data.fd;
-
             if (current_fd == serv_fd)
             {
-                int client_fd = accept(serv_fd, NULL, NULL);
+                int client_fd = accept(serv_fd, nullptr, nullptr);
                 if (client_fd == -1)
                 {
                     perror("accept");
@@ -109,10 +108,10 @@ int main()
             }
             else
             {
-                int bytes = read(current_fd, buffer, sizeof(buffer));
+                ssize_t bytes = read(current_fd, buffer.data(), buffer.size());
                 if (bytes <= 0)
                 {
-                    if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL) == -1)
+                    if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, nullptr) == -1)
                     {
                         perror("epoll_ctl");
                         return 1;
@@ -129,12 +128,12 @@ int main()
                 }
 
                 ClientContext& ctx = clients[current_fd];
-                for (int j = 0; j < bytes; ++j)
+                for (ssize_t j = 0; j < bytes; ++j)
                 {
                     unsigned char c = buffer[j];
                     ctx.sm.consume(c);
 
-                    if (c != '\r' && c != '\n')
+                    if (c != '\r' and c != '\n')
                     {
                         ctx.current_line += c;
                     }
@@ -144,7 +143,7 @@ int main()
                         std::string response{};
                         if (!ctx.sm.isError())
                         {
-                            auto [plnd, words] = count(reinterpret_cast<const unsigned char*>(ctx.current_line.c_str()), ctx.current_line.length());
+                            auto [plnd, words] = count(ctx.current_line);
                             response = std::to_string(plnd) + "/" + std::to_string(words) + "\r\n";
                         }
                         else
@@ -152,7 +151,7 @@ int main()
                             response = "ERROR\r\n";
                         }
 
-                        int bytes_sent = write(current_fd, response.c_str(), response.length());
+                        ssize_t bytes_sent = write(current_fd, response.c_str(), response.length());
                         if (bytes_sent == -1)
                         {
                             perror("write");
@@ -168,9 +167,12 @@ int main()
     }
 }
 
-bool is_letter(const unsigned char c) { return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z'); }
+constexpr bool is_letter(const unsigned char c) 
+{
+    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z'); 
+}
 
-char to_lower(const unsigned char c)
+constexpr char to_lower(const unsigned char c)
 {
     if (c >= 'A' and c <= 'Z')
         return c - 'A' + 'a';
@@ -178,10 +180,9 @@ char to_lower(const unsigned char c)
     return c;
 }
 
-int init_server(int port_number)
+int init_server(int port_number, int connections)
 {
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
+    sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port_number);
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -193,123 +194,141 @@ int init_server(int port_number)
         return -1;
     }
 
-    if (bind(serv_fd, (const struct sockaddr*)&addr, sizeof(addr)) == -1)
+    if (bind(serv_fd, reinterpret_cast<const struct sockaddr*>(&addr), sizeof(addr)) == -1)
     {
         perror("bind");
+        close(serv_fd);
         return -1;
     }
 
-    if (listen(serv_fd, 1) == -1)
+    if (listen(serv_fd, connections) == -1)
     {
         perror("listen");
+        close(serv_fd);
         return -1;
     }
 
     return serv_fd;
 }
 
-bool is_palindrome(const unsigned char* begin, ssize_t size)
+bool is_palindrome(std::string_view input)
 {
-    const unsigned char* end = begin + size - 1;
-    while (begin < end)
+    if (input.empty())
+        return true;
+
+    std::size_t i = 0;
+    std::size_t j = input.size() - 1;
+    while (i < j)
     {
-        if (to_lower(*begin) != to_lower(*end))
+        if (to_lower(input[i]) != to_lower(input[j]))
             return false;
 
-        ++begin;
-        --end;
+        ++i; --j;
     }
 
     return true;
 }
 
-std::pair<int, int> count(const unsigned char* input, ssize_t size)
+std::pair<int, int> count(std::string_view input)
 {
-    std::pair<int, int> result;
+    std::pair<int, int> result{};
 
-    const unsigned char* word = input;
-    int word_size = 0;
-    for (int i = 0; i < size; ++i, ++input)
+    const char* word = nullptr;
+    std::size_t word_size = 0;
+    for (std::size_t i = 0; i < input.size(); ++i)
     {
-        if (is_letter((unsigned char)*input))
+        unsigned char c = input[i];   
+        if (is_letter(c))
         {
             if (word_size == 0)
-                word = input;
+                word = input.data() + i;
 
             ++word_size;
         }
-        else if (*input == ' ')
+        else if (c == ' ')
         {
-            if (is_palindrome(word, word_size))
-                ++result.first;
+            if (word_size > 0)
+            {
+                if (is_palindrome(std::string_view{word, word_size}))
+                    ++result.first;
 
-            word_size = 0;
-            ++result.second;
+                ++result.second;
+                word_size = 0;
+            }
         }
     }
 
     if (word_size > 0)
     {
-        if (is_palindrome(word, word_size))
+        if (is_palindrome(std::string_view{word, word_size}))
             ++result.first;
 
-        word_size = 0;
         ++result.second;
     }
 
     return result;
 }
 
-void StateMachine::consume(unsigned char c)
+void StateMachine::consume(unsigned char c) noexcept
 {
     switch (m_state)
     {
-        case LETTER:
+        case State::START:
         {
             if (is_letter(c))
-                m_state = LETTER;
+                m_state = State::LETTER;
             else if (c == '\r')
-                m_state = CARET;
+                m_state = State::CARET;
+            else
+                m_is_error = true;
+
+            break;
+        }
+        case State::LETTER:
+        {
+            if (is_letter(c))
+                m_state = State::LETTER;
+            else if (c == '\r')
+                m_state = State::CARET;
             else if (c == ' ')
-                m_state = SPACE;
+                m_state = State::SPACE;
             else
-                is_error = true;
+                m_is_error = true;
 
             break;
         }
-        case SPACE:
+        case State::SPACE:
         {
             if (is_letter(c))
-                m_state = LETTER;
+                m_state = State::LETTER;
             else if (c == '\r')
-                m_state = CARET;
+            {
+                m_is_error = true;
+                m_state = State::CARET;
+            }
             else
-                is_error = true;
+                m_is_error = true;
 
             break;
         }
-        case CARET:
+        case State::CARET:
         {
             if (c == '\n')
-                m_state = TERMINATOR;
+                m_state = State::TERMINATOR;
             else
-                is_error = true;
+                m_is_error = true;
 
             break;
         }
-        case TERMINATOR:
+        case State::TERMINATOR:
         {
-            m_state = TERMINATOR;
             break;
         }
     }
-
-    ++consumed;
 }
 
-void StateMachine::reset()
+void StateMachine::reset() noexcept
 {
-    m_state = SPACE;
-    is_error = false;
-    consumed = 0;
+    m_state = State::START;
+    m_is_error = false;
 }
