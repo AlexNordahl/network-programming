@@ -1,20 +1,19 @@
-#include <unistd.h>
 #include <netinet/in.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
-#include <string>
+#include <array>
+#include <cctype>
 #include <cstddef>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
-#include <array>
 
 int init_server(int port_number, int connections);
-std::pair<int, int> count(std::string_view input);  // plnd, words
-bool is_palindrome(std::string_view input);
-constexpr char to_lower(const unsigned char c);
-constexpr bool is_letter(const unsigned char c);
+std::pair<int, int> count(std::string_view sv);  // plnd, words
+bool is_palindrome(std::string_view sv);
 
 class StateMachine
 {
@@ -36,7 +35,6 @@ private:
     };
 
     State m_state{State::START};
-    int m_consumed{};
     bool m_is_error{};
 };
 
@@ -44,18 +42,18 @@ int main()
 {
     const int port_number = 2020;
     const int connections = 100;
-    
+
     int serv_fd = init_server(port_number, connections);
     if (serv_fd == -1)
-    return 1;
-    
+        return 1;
+
     int epoll_fd = epoll_create1(0);
     if (epoll_fd == -1)
     {
         perror("epoll_create1");
         return 1;
     }
-    
+
     epoll_event event{};
     event.events = EPOLLIN;
     event.data.fd = serv_fd;
@@ -93,7 +91,7 @@ int main()
                 if (client_fd == -1)
                 {
                     perror("accept");
-                    continue;
+                    return 1;
                 }
 
                 event.events = EPOLLIN;
@@ -157,7 +155,7 @@ int main()
                             perror("write");
                             return 1;
                         }
-                        
+
                         ctx.current_line.clear();
                         ctx.sm.reset();
                     }
@@ -165,19 +163,6 @@ int main()
             }
         }
     }
-}
-
-constexpr bool is_letter(const unsigned char c) 
-{
-    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z'); 
-}
-
-constexpr char to_lower(const unsigned char c)
-{
-    if (c >= 'A' and c <= 'Z')
-        return c - 'A' + 'a';
-
-    return c;
 }
 
 int init_server(int port_number, int connections)
@@ -211,37 +196,37 @@ int init_server(int port_number, int connections)
     return serv_fd;
 }
 
-bool is_palindrome(std::string_view input)
+bool is_palindrome(std::string_view sv)
 {
-    if (input.empty())
+    if (sv.empty())
         return true;
 
-    std::size_t i = 0;
-    std::size_t j = input.size() - 1;
+    std::size_t i = 0, j = sv.size() - 1;
     while (i < j)
     {
-        if (to_lower(input[i]) != to_lower(input[j]))
+        if (std::tolower(static_cast<unsigned char>(sv[i])) != std::tolower(static_cast<unsigned char>(sv[j])))
             return false;
 
-        ++i; --j;
+        ++i;
+        --j;
     }
 
     return true;
 }
 
-std::pair<int, int> count(std::string_view input)
+std::pair<int, int> count(std::string_view sv)
 {
-    std::pair<int, int> result{};
+    std::pair result{0, 0};
 
     const char* word = nullptr;
     std::size_t word_size = 0;
-    for (std::size_t i = 0; i < input.size(); ++i)
+    for (std::size_t i = 0; i < sv.size(); ++i)
     {
-        unsigned char c = input[i];   
-        if (is_letter(c))
+        unsigned char c = sv[i];
+        if (std::isalpha(c))
         {
             if (word_size == 0)
-                word = input.data() + i;
+                word = sv.data() + i;
 
             ++word_size;
         }
@@ -249,7 +234,7 @@ std::pair<int, int> count(std::string_view input)
         {
             if (word_size > 0)
             {
-                if (is_palindrome(std::string_view{word, word_size}))
+                if (is_palindrome({word, word_size}))
                     ++result.first;
 
                 ++result.second;
@@ -260,7 +245,7 @@ std::pair<int, int> count(std::string_view input)
 
     if (word_size > 0)
     {
-        if (is_palindrome(std::string_view{word, word_size}))
+        if (is_palindrome({word, word_size}))
             ++result.first;
 
         ++result.second;
@@ -275,7 +260,7 @@ void StateMachine::consume(unsigned char c) noexcept
     {
         case State::START:
         {
-            if (is_letter(c))
+            if (std::isalpha(c))
                 m_state = State::LETTER;
             else if (c == '\r')
                 m_state = State::CARET;
@@ -286,7 +271,7 @@ void StateMachine::consume(unsigned char c) noexcept
         }
         case State::LETTER:
         {
-            if (is_letter(c))
+            if (std::isalpha(c))
                 m_state = State::LETTER;
             else if (c == '\r')
                 m_state = State::CARET;
@@ -299,7 +284,7 @@ void StateMachine::consume(unsigned char c) noexcept
         }
         case State::SPACE:
         {
-            if (is_letter(c))
+            if (std::isalpha(c))
                 m_state = State::LETTER;
             else if (c == '\r')
             {

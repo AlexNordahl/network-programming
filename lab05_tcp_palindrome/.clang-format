@@ -1,0 +1,16 @@
+BasedOnStyle: Google
+
+BreakBeforeBraces: Allman
+
+PointerAlignment: Left
+DerivePointerAlignment: false
+
+IndentWidth: 4
+AccessModifierOffset: -4
+ColumnLimit: 200
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+
+BreakConstructorInitializers: AfterColon
+PackConstructorInitializers: Never
+ConstructorInitializerIndentWidth: 4
